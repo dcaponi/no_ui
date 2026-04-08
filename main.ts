@@ -67,68 +67,17 @@ const client = new OpenAI({
 });
 
 const app = new Hono();
-
-// Wildcard route: extract the first path segment as the Pokémon name.
-app.get("*", async (c) => {
-  const url = new URL(c.req.url);
-  const firstSegment = url.pathname.replace(/^\/+/, "").split("/")[0];
-  const pokemon = firstSegment || "pikachu";
-
-  let messages: any[] = [
-    { role: "system", content: prompt },
-    {
-      role: "user",
-      content: `make me a website about ${pokemon}. If you need stats, types, abilities, or sprites, call get_pokemon with the name.`,
-    },
-  ];
-
-  let chat = await client.chat.completions.create({
+app.get("/:pokemon", async (c) => {
+  const pokemon = c.req.param("pokemon");
+  const chatCompletion = await client.chat.completions.create({
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: `make me a website about ${pokemon}` }
+    ],
     model: "gpt-5-nano",
-    messages,
-    tools,
-    tool_choice: "auto",
   });
+  const html = chatCompletion.choices[0].message.content
 
-  // Handle tool calls iteratively until the model returns final content
-  for (let i = 0; i < 3; i++) {
-    const msg = chat.choices?.[0]?.message;
-    const toolCalls = msg?.tool_calls ?? [];
-    if (!toolCalls.length) break;
-
-    // Include the assistant message containing tool calls
-    messages.push(msg);
-
-    for (const call of toolCalls) {
-      if (call.type === "function" && call.function?.name === "get_pokemon") {
-        try {
-          const args = JSON.parse(call.function.arguments || "{}");
-          const result = await getPokemon(args.name ?? pokemon);
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: JSON.stringify(result),
-          });
-        } catch (err) {
-          messages.push({
-            role: "tool",
-            tool_call_id: call.id,
-            content: JSON.stringify({ error: String(err) }),
-          });
-        }
-      }
-    }
-
-    chat = await client.chat.completions.create({
-      model: "gpt-5-nano",
-      messages,
-      tools,
-      tool_choice: "auto",
-    });
-  }
-
-  const finalMessage = chat.choices?.[0]?.message;
-  const html = finalMessage?.content;
-
-  return c.html(html ?? "<h1>something went wrong</h1>");
+  return c.html(html ?? '<h1>something went wrong</h1>')
 });
 Deno.serve(app.fetch);
